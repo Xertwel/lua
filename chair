@@ -1,0 +1,114 @@
+local tool = script.Parent
+local mainHandle = tool:WaitForChild("MainHandle")
+local motor = tool:WaitForChild("ToolMotor6D")
+
+local players = game:GetService("Players")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+local userInputService = game:GetService("UserInputService")
+local debris = game:GetService("Debris")
+local physicsService = game:GetService("PhysicsService")
+local runService = game:GetService("RunService")
+local starterGui = game:GetService("StarterGui")
+
+local remotes = replicatedStorage:WaitForChild("Remotes")
+local motor6D = remotes:WaitForChild("Motor6D")
+local throwObject = remotes:WaitForChild("ThrowObject")
+local notifyClient = remotes:WaitForChild("Notify")
+
+local player = players.LocalPlayer
+local mouse = player:GetMouse()
+local character = workspace.Characters:WaitForChild(player.Name)
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
+
+local animations = tool:WaitForChild("Animations")
+local idle = animator:LoadAnimation(animations:WaitForChild("Idle"))
+local charge = animator:LoadAnimation(animations:WaitForChild("Charge"))
+local throw = animator:LoadAnimation(animations:WaitForChild("Throw"))
+
+local values = tool:WaitForChild("Values")
+local maxThrowPower = values:WaitForChild("MaxThrowPower")
+
+equipped = false
+maxThrowPower = maxThrowPower.Value
+currentThrowPower = 0
+charging = false
+wasUsed = false
+wasEquipped = false
+
+function lerp(a, b, c)
+	return a + (b - a) * c
+end
+
+tool.Equipped:Connect(function()
+	if wasEquipped then
+		task.wait()
+		humanoid:UnequipTools()
+		return
+	end
+	
+	wasEquipped = true
+	motor.Part0 = character:WaitForChild("Right Arm")
+	motor.Part1 = mainHandle
+	
+	motor6D:FireServer(tool, motor, character:WaitForChild("Right Arm"), mainHandle)
+	
+	idle:Play()
+	
+	equipped = true
+end)
+
+tool.Unequipped:Connect(function()
+	starterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+	idle:Stop()
+	charge:Stop()
+	
+	equipped = false
+	charging = false
+end)
+
+userInputService.InputBegan:Connect(function(key, gpe)
+	if wasUsed then return end
+	if gpe then return end
+	if not equipped then return end
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+		charging = true
+		task.spawn(function()
+			local connection
+			connection = charge.Stopped:Connect(function()
+				if wasUsed then return end
+				wasUsed = true
+				connection:Disconnect()
+				
+				currentThrowPower = math.clamp(currentThrowPower, 0, maxThrowPower)
+				throw:Play()
+				notifyClient:Fire('Threw <i><font weight="heavy">' .. tool.Name .. '</font></i> <font color="rgb(113, 113, 113)">(' .. math.floor((currentThrowPower/maxThrowPower) * 100 + 0.5) .. '% power)</font>.', "yellow")
+				throwObject:FireServer(tool.Name, humanoid.RootPart.CFrame.LookVector, currentThrowPower, mouse.Hit.LookVector.Y)
+				
+				currentThrowPower = 0
+			end)
+			charge:Play()
+			
+			local startTime = os.clock()
+			local endTime = startTime + charge.Length
+			repeat
+				starterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+				local mhp = mouse.Hit.Position
+				humanoid.RootPart.CFrame = CFrame.new(humanoid.RootPart.Position, Vector3.new(mhp.X, humanoid.RootPart.Position.Y, mhp.Z))
+				currentThrowPower = lerp(0, maxThrowPower, (os.clock() - startTime)/((endTime - startTime) * 0.95))
+				runService.Stepped:Wait()
+			until not charging or not tool or maxThrowPower <= currentThrowPower
+			charging = false
+		end)
+	end
+end)
+
+userInputService.InputEnded:Connect(function(key, gpe)
+	if gpe then return end
+	if not equipped then return end
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+		charging = false
+		charge:Stop()
+	end
+end)
